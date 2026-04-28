@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local / IDE / tool directories
+.claude/
+.remember/
+.vscode/
+.idea/
+
+# Python cache & compiled
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Root-level temp test artifacts (keep requirements.txt)
+/simple_test_results.txt
+/simple_test_payloads.txt
+
+# Results — keep directory structure, ignore all generated files
+results/raw/*
+results/scored/*
+!results/raw/.gitkeep
+!results/scored/.gitkeep
+
+# Figures — keep directory structure even when empty
+figures/*
+!figures/.gitkeep
