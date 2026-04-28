@@ -3,23 +3,24 @@ Generate figures from scored results.
 
 Usage:
     python scripts/plot.py --latest
-    python scripts/plot.py results/scored/phi4-14b_nexabank_CEGJMOP_20260428_184940_scored.json
+    python scripts/plot.py results/scored/<file>_scored.json
     python scripts/plot.py --all
 """
 
 import argparse
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 ROOT = Path(__file__).parent.parent
 FIGURES_DIR = ROOT / "figures"
 
-# Academic style
 plt.rcParams.update(
     {
         "font.family": "serif",
@@ -49,7 +50,7 @@ CATEGORY_LABELS = {
     "P": "Pipeline",
     "M": "Misinformation",
 }
-COLORS = plt.cm.tab10(np.linspace(0, 1, 10))
+COLORS = matplotlib.colormaps["tab10"](np.linspace(0, 1, 10))
 
 
 def load_scored(path: Path) -> dict:
@@ -57,17 +58,12 @@ def load_scored(path: Path) -> dict:
         return json.load(f)
 
 
-def extract_model_data(data: dict) -> dict:
-    """
-    Returns dict[model_name] -> {
-        categories: {cat: {asr, leaked, total, ...}},
-        overall: {...}
-    }
-    """
+def extract_data(data: dict) -> dict:
+    """Returns {model: {prompt: {categories: {...}, overall: {...}}}}"""
     return data.get("models", {})
 
 
-def save(fig: plt.Figure, name: str):
+def save(fig: Figure, name: str):
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     for ext in [".png", ".pdf"]:
         out = FIGURES_DIR / f"{name}{ext}"
@@ -78,107 +74,134 @@ def save(fig: plt.Figure, name: str):
 
 def plot_asr_by_category(all_models: dict, slug: str):
     """
-    Grouped bar chart: categories on X, ASR on Y, one bar per model.
+    Grouped bar chart per prompt.
+    If multiple prompts: one figure per prompt.
     """
-    models = list(all_models.keys())
-    n_models = len(models)
-    n_cats = len(CATEGORY_ORDER)
-    width = 0.8 / n_models
-    x = np.arange(n_cats)
+    prompts_seen = set()
+    for model_data in all_models.values():
+        prompts_seen.update(model_data.get("prompts", {}).keys())
+    prompts = sorted(prompts_seen)
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for prompt in prompts:
+        models = []
+        asrs = {cat: [] for cat in CATEGORY_ORDER}
 
-    for i, model in enumerate(models):
-        cats = all_models[model].get("categories", {})
-        asrs = [
-            cats.get(cat, {}).get("asr", 0.0) if cat in cats else 0.0
-            for cat in CATEGORY_ORDER
-        ]
-        offset = (i - n_models / 2 + 0.5) * width
-        bars = ax.bar(
-            x + offset,
-            asrs,
-            width,
-            label=model,
-            color=COLORS[i],
-            edgecolor="black",
-            linewidth=0.5,
-        )
-        # Value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            if height > 0:
-                ax.annotate(
-                    f"{height:.1f}",
-                    xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 3),
-                    textcoords="offset points",
-                    ha="center",
-                    va="bottom",
-                    fontsize=7,
-                    rotation=90 if height > 50 else 0,
-                )
+        for model in sorted(all_models.keys()):
+            prompt_data = all_models[model].get("prompts", {}).get(prompt)
+            if not prompt_data:
+                continue
+            models.append(model)
+            cats = prompt_data.get("categories", {})
+            for cat in CATEGORY_ORDER:
+                asrs[cat].append(cats.get(cat, {}).get("asr", 0.0))
 
-    ax.set_ylabel("Attack Success Rate (%)")
-    ax.set_xlabel("Attack Category")
-    ax.set_xticks(x)
-    ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
-    ax.set_ylim(0, 105)
-    ax.legend(title="Model", loc="upper left", frameon=True)
-    ax.set_title(f"ASR by Attack Category — {slug}")
+        if not models:
+            continue
 
-    fig.tight_layout()
-    save(fig, f"{slug}_asr_by_category")
-    return fig
+        n_models = len(models)
+        width = 0.8 / n_models
+        x = np.arange(len(CATEGORY_ORDER))
+
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+
+        for i, model in enumerate(models):
+            offset = (i - n_models / 2 + 0.5) * width
+            vals = [asrs[cat][i] for cat in CATEGORY_ORDER]
+            bars = ax.bar(
+                x + offset,
+                vals,
+                width,
+                label=model,
+                color=COLORS[i],
+                edgecolor="black",
+                linewidth=0.5,
+            )
+            for bar in bars:
+                h = bar.get_height()
+                if h > 0:
+                    ax.annotate(
+                        f"{h:.1f}",
+                        xy=(bar.get_x() + bar.get_width() / 2, h),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7,
+                        rotation=90 if h > 50 else 0,
+                    )
+
+        ax.set_ylabel("Attack Success Rate (%)")
+        ax.set_xlabel("Attack Category")
+        ax.set_xticks(x)
+        ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
+        ax.set_ylim(0, 105)
+        ax.legend(title="Model", loc="upper left", frameon=True)
+        ax.set_title(f"ASR by Category — Prompt: {prompt}")
+
+        fig.tight_layout()
+        save(fig, f"{slug}_asr_by_category_{prompt}")
 
 
 def plot_heatmap(all_models: dict, slug: str):
     """
-    Heatmap: models (rows) vs categories (cols), cells = ASR %.
+    Heatmap per prompt: models (rows) vs categories (cols).
     """
-    models = list(all_models.keys())
-    matrix = np.zeros((len(models), len(CATEGORY_ORDER)))
+    prompts_seen = set()
+    for model_data in all_models.values():
+        prompts_seen.update(model_data.get("prompts", {}).keys())
+    prompts = sorted(prompts_seen)
 
-    for i, model in enumerate(models):
-        cats = all_models[model].get("categories", {})
-        for j, cat in enumerate(CATEGORY_ORDER):
-            matrix[i, j] = cats.get(cat, {}).get("asr", 0.0)
+    for prompt in prompts:
+        models = []
+        matrix = []
 
-    fig, ax = plt.subplots(figsize=(7, max(3, 0.4 * len(models) + 1)))
-    im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0, vmax=100)
+        for model in sorted(all_models.keys()):
+            prompt_data = all_models[model].get("prompts", {}).get(prompt)
+            if not prompt_data:
+                continue
+            models.append(model)
+            cats = prompt_data.get("categories", {})
+            row = [cats.get(cat, {}).get("asr", 0.0) for cat in CATEGORY_ORDER]
+            matrix.append(row)
 
-    ax.set_xticks(np.arange(len(CATEGORY_ORDER)))
-    ax.set_yticks(np.arange(len(models)))
-    ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
-    ax.set_yticklabels(models)
+        if not models:
+            continue
 
-    # Text annotations
-    for i in range(len(models)):
-        for j in range(len(CATEGORY_ORDER)):
-            val = matrix[i, j]
-            text_color = "white" if val > 50 else "black"
-            ax.text(
-                j,
-                i,
-                f"{val:.1f}",
-                ha="center",
-                va="center",
-                color=text_color,
-                fontsize=9,
-                fontweight="bold",
-            )
+        matrix = np.array(matrix)
 
-    ax.set_title(f"ASR Heatmap — {slug}")
-    fig.colorbar(im, ax=ax, label="ASR (%)", shrink=0.6)
+        fig, ax = plt.subplots(figsize=(7, max(3, 0.4 * len(models) + 1)))
+        im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0, vmax=100)
 
-    fig.tight_layout()
-    save(fig, f"{slug}_heatmap")
-    return fig
+        ax.set_xticks(np.arange(len(CATEGORY_ORDER)))
+        ax.set_yticks(np.arange(len(models)))
+        ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
+        ax.set_yticklabels(models)
+
+        for i in range(len(models)):
+            for j in range(len(CATEGORY_ORDER)):
+                val = matrix[i, j]
+                color = "white" if val > 50 else "black"
+                ax.text(
+                    j,
+                    i,
+                    f"{val:.1f}",
+                    ha="center",
+                    va="center",
+                    color=color,
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+        ax.set_title(f"ASR Heatmap — Prompt: {prompt}")
+        fig.colorbar(im, ax=ax, label="ASR (%)", shrink=0.6)
+
+        fig.tight_layout()
+        save(fig, f"{slug}_heatmap_{prompt}")
 
 
 def plot_overall_ranking(all_models: dict, slug: str):
     """
-    Horizontal bar chart of overall ASR per model.
+    Horizontal bar: grand overall ASR per model (across all prompts).
     """
     models = []
     asrs = []
@@ -192,7 +215,6 @@ def plot_overall_ranking(all_models: dict, slug: str):
         leaked.append(ov.get("leaked", 0))
         totals.append(ov.get("total", 0))
 
-    # Sort by ASR descending
     sorted_idx = np.argsort(asrs)[::-1]
     models = [models[i] for i in sorted_idx]
     asrs = [asrs[i] for i in sorted_idx]
@@ -203,14 +225,13 @@ def plot_overall_ranking(all_models: dict, slug: str):
     y = np.arange(len(models))
     bars = ax.barh(y, asrs, color=COLORS[0], edgecolor="black", linewidth=0.5)
 
-    # Color by severity
     for bar, val in zip(bars, asrs):
         if val > 50:
-            bar.set_color("#d62728")  # red
+            bar.set_color("#d62728")
         elif val > 25:
-            bar.set_color("#ff7f0e")  # orange
+            bar.set_color("#ff7f0e")
         else:
-            bar.set_color("#2ca02c")  # green
+            bar.set_color("#2ca02c")
 
     ax.set_yticks(y)
     ax.set_yticklabels(models)
@@ -218,15 +239,15 @@ def plot_overall_ranking(all_models: dict, slug: str):
     ax.set_xlim(0, 105)
     ax.set_xlabel("Overall Attack Success Rate (%)")
 
-    for i, (val, l, t) in enumerate(zip(asrs, leaked, totals)):
-        ax.text(val + 1.5, i, f"{val:.1f}% ({l}/{t})", va="center", fontsize=9)
+    for i, (val, lk, tot) in enumerate(zip(asrs, leaked, totals)):
+        ax.text(val + 1.5, i, f"{val:.1f}% ({lk}/{tot})", va="center", fontsize=9)
 
-    ax.set_title(f"Overall ASR Ranking — {slug}")
+    ax.set_title("Overall ASR Ranking — All Prompts")
     ax.legend(
         handles=[
-            plt.Rectangle((0, 0), 1, 1, color="#2ca02c", label="Low (<25%)"),
-            plt.Rectangle((0, 0), 1, 1, color="#ff7f0e", label="Medium (25-50%)"),
-            plt.Rectangle((0, 0), 1, 1, color="#d62728", label="High (>50%)"),
+            Rectangle((0, 0), 1, 1, color="#2ca02c", label="Low (<25%)"),
+            Rectangle((0, 0), 1, 1, color="#ff7f0e", label="Medium (25-50%)"),
+            Rectangle((0, 0), 1, 1, color="#d62728", label="High (>50%)"),
         ],
         loc="lower right",
         frameon=True,
@@ -237,52 +258,138 @@ def plot_overall_ranking(all_models: dict, slug: str):
     return fig
 
 
-def plot_leak_resist_stacked(all_models: dict, slug: str):
+def plot_prompt_comparison(all_models: dict, slug: str):
     """
-    Stacked horizontal bar: leaked vs resisted per category.
+    Grouped bar: one group per model, bars = ASR per prompt.
     """
-    models = list(all_models.keys())
-    fig, axes = plt.subplots(1, len(models), figsize=(4 * len(models), 5), sharey=True)
-    if len(models) == 1:
-        axes = [axes]
+    models = sorted(all_models.keys())
+    prompts_seen = set()
+    for m in models:
+        prompts_seen.update(all_models[m].get("prompts", {}).keys())
+    prompts = sorted(prompts_seen)
 
-    for ax, model in zip(axes, models):
-        cats = all_models[model].get("categories", {})
-        cats_present = [c for c in CATEGORY_ORDER if c in cats]
-        leaked = [cats[c]["leaked"] for c in cats_present]
-        resisted = [cats[c]["resisted"] for c in cats_present]
+    if len(prompts) <= 1:
+        return
 
-        y = np.arange(len(cats_present))
-        ax.barh(
-            y, leaked, color="#d62728", label="Leaked", edgecolor="black", linewidth=0.5
-        )
-        ax.barh(
-            y,
-            resisted,
-            left=leaked,
-            color="#2ca02c",
-            label="Resisted",
+    n_models = len(models)
+    n_prompts = len(prompts)
+    width = 0.8 / n_prompts
+    x = np.arange(n_models)
+
+    fig, ax = plt.subplots(figsize=(max(6, n_models * 1.2), 4.5))
+
+    for i, prompt in enumerate(prompts):
+        vals = []
+        for model in models:
+            p_data = all_models[model].get("prompts", {}).get(prompt)
+            if p_data:
+                vals.append(p_data.get("overall", {}).get("asr", 0.0))
+            else:
+                vals.append(0.0)
+
+        offset = (i - n_prompts / 2 + 0.5) * width
+        bars = ax.bar(
+            x + offset,
+            vals,
+            width,
+            label=prompt,
+            color=COLORS[i],
             edgecolor="black",
             linewidth=0.5,
         )
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0:
+                ax.annotate(
+                    f"{h:.1f}",
+                    xy=(bar.get_x() + bar.get_width() / 2, h),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
 
-        ax.set_yticks(y)
-        ax.set_yticklabels([CATEGORY_LABELS[c] for c in cats_present])
-        ax.invert_yaxis()
-        ax.set_xlabel("Payload Count")
-        ax.set_title(model)
-        ax.legend(loc="lower right")
+    ax.set_ylabel("Attack Success Rate (%)")
+    ax.set_xlabel("Model")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=30, ha="right")
+    ax.set_ylim(0, 105)
+    ax.legend(title="Prompt", loc="upper left", frameon=True)
+    ax.set_title("ASR Comparison Across Prompts")
 
-    fig.suptitle(f"Leak vs Resist by Category — {slug}", y=1.02)
     fig.tight_layout()
-    save(fig, f"{slug}_leak_resist_stacked")
+    save(fig, f"{slug}_prompt_comparison")
     return fig
+
+
+def plot_leak_resist_stacked(all_models: dict, slug: str):
+    """
+    Stacked bars per prompt: leaked vs resisted per category.
+    One figure per prompt.
+    """
+    prompts_seen = set()
+    for m in all_models.values():
+        prompts_seen.update(m.get("prompts", {}).keys())
+    prompts = sorted(prompts_seen)
+
+    for prompt in prompts:
+        models = []
+        for model in sorted(all_models.keys()):
+            if prompt in all_models[model].get("prompts", {}):
+                models.append(model)
+
+        if not models:
+            continue
+
+        fig, axes = plt.subplots(
+            1, len(models), figsize=(4 * len(models), 5), sharey=True
+        )
+        if len(models) == 1:
+            axes = [axes]
+
+        for ax, model in zip(axes, models):
+            cats = all_models[model]["prompts"][prompt].get("categories", {})
+            cats_present = [c for c in CATEGORY_ORDER if c in cats]
+            leaked = [cats[c]["leaked"] for c in cats_present]
+            resisted = [cats[c]["resisted"] for c in cats_present]
+
+            y = np.arange(len(cats_present))
+            ax.barh(
+                y,
+                leaked,
+                color="#d62728",
+                label="Leaked",
+                edgecolor="black",
+                linewidth=0.5,
+            )
+            ax.barh(
+                y,
+                resisted,
+                left=leaked,
+                color="#2ca02c",
+                label="Resisted",
+                edgecolor="black",
+                linewidth=0.5,
+            )
+
+            ax.set_yticks(y)
+            ax.set_yticklabels([CATEGORY_LABELS[c] for c in cats_present])
+            ax.invert_yaxis()
+            ax.set_xlabel("Payload Count")
+            ax.set_title(model)
+            ax.legend(loc="lower right")
+
+        fig.suptitle(f"Leak vs Resist — Prompt: {prompt}", y=1.02)
+        fig.tight_layout()
+        save(fig, f"{slug}_leak_resist_stacked_{prompt}")
+        return fig
 
 
 def process_file(path: Path):
     print(f"\nPlotting: {path}")
     data = load_scored(path)
-    models = extract_model_data(data)
+    models = extract_data(data)
     if not models:
         print("  [WARN] No model data found.")
         return
@@ -291,6 +398,7 @@ def process_file(path: Path):
     plot_asr_by_category(models, slug)
     plot_heatmap(models, slug)
     plot_overall_ranking(models, slug)
+    plot_prompt_comparison(models, slug)
     plot_leak_resist_stacked(models, slug)
 
 
