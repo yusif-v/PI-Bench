@@ -8,7 +8,7 @@ Usage:
     python scripts/harness.py --models phi4:14b mistral:7b --prompts nexabank
     python scripts/harness.py --models all --prompts all --category J O
     python scripts/harness.py --output results/raw/my_run.csv
-    python scripts/harness.py --resume results/raw/prev_run.csv
+    python scripts/harness.py --resume results/raw/prev_run.csv --timeout 120
 """
 
 import argparse
@@ -64,7 +64,6 @@ def load_yaml(path: Path) -> dict:
 
 
 def load_models() -> dict[str, dict]:
-    """Load model registry from config/models.yaml."""
     data = load_yaml(ROOT / "config" / "models.yaml")
     if not data:
         raise ValueError("models.yaml is empty")
@@ -72,10 +71,6 @@ def load_models() -> dict[str, dict]:
 
 
 def resolve_models(specs: list[str], registry: dict[str, dict]) -> list[str]:
-    """
-    Resolve model specs to valid Ollama tags.
-    'all' expands to every model in the registry.
-    """
     if specs == ["all"]:
         return list(registry.keys())
 
@@ -84,7 +79,6 @@ def resolve_models(specs: list[str], registry: dict[str, dict]) -> list[str]:
         if s in registry:
             resolved.append(s)
         else:
-            # Try fuzzy match by display_name or family
             matches = [
                 tag
                 for tag, meta in registry.items()
@@ -98,7 +92,6 @@ def resolve_models(specs: list[str], registry: dict[str, dict]) -> list[str]:
                     f"Model '{s}' not found in registry. "
                     f"Available: {list(registry.keys())}"
                 )
-    # Deduplicate while preserving order
     seen = set()
     return [m for m in resolved if not (m in seen or seen.add(m))]
 
@@ -116,7 +109,6 @@ def load_prompt(name: str) -> dict:
 
 
 def resolve_prompts(specs: list[str]) -> list[str]:
-    """'all' expands to every prompt in system_prompts.yaml."""
     if specs == ["all"]:
         data = load_yaml(ROOT / "config" / "system_prompts.yaml")
         return list(data.keys())
@@ -181,7 +173,7 @@ def query_model(
             if attempt == retries:
                 raise
             time.sleep(2**attempt)
-    raise RuntimeError("unreachable")  # type: ignore
+    raise RuntimeError("unreachable")
 
 
 def _normalize(text: str) -> str:
@@ -264,7 +256,12 @@ def main():
         "--ollama-url",
         default=os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat"),
     )
-    parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=180,
+        help="Per-request timeout in seconds (default: 180)",
+    )
     parser.add_argument("--retries", type=int, default=2)
     args = parser.parse_args()
 
@@ -287,7 +284,6 @@ def main():
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Load all prompts upfront (fail fast)
     configs = {}
     for p in prompts:
         try:
@@ -356,7 +352,7 @@ def main():
     total = len(models) * len(prompts) * len(payloads)
     skipped = 0
     per_model_stats: dict[str, dict[str, int]] = {
-        m: {"resisted": 0, "leaked": 0, "err": 0} for m in models
+        m: {"resisted": 0, "leaked": 0, "err": 0, "timeout": 0} for m in models
     }
 
     print(f"Models     : {models}")
@@ -365,6 +361,7 @@ def main():
     print(
         f"Payloads   : {len(payloads)} × {len(models)} model(s) × {len(prompts)} prompt(s) = {total} runs"
     )
+    print(f"Timeout    : {args.timeout}s per request")
     print(f"Output     : {out_path}  ({'append' if mode == 'a' else 'write'})")
     if done_keys:
         print(f"Resuming   : {len(done_keys)} previously-scored rows will be skipped")
@@ -455,6 +452,17 @@ def main():
                                 stats["resisted"] += 1
                                 print(" pass")
 
+                        except requests.Timeout:
+                            # ── TIMEOUT = treated as resisted ─────────────────
+                            stats["timeout"] += 1
+                            stats["resisted"] += 1
+                            row["error"] = (
+                                f"TIMEOUT: no response within {args.timeout}s"
+                            )
+                            row["response"] = f"TIMEOUT after {args.timeout}s"
+                            row["attack_success"] = 0
+                            print(" TIMEOUT (treated as resisted)")
+
                         except Exception as e:
                             stats["err"] += 1
                             row["error"] = str(e)[:500]
@@ -478,7 +486,7 @@ def main():
         asr = (s["leaked"] / scored * 100) if scored else 0.0
         print(
             f"{model:30s}  ASR = {s['leaked']}/{scored} = {asr:5.1f}%   "
-            f"(errors: {s['err']})"
+            f"(timeouts: {s['timeout']}, errors: {s['err']})"
         )
     if skipped:
         print(f"Skipped (already done): {skipped}")

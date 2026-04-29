@@ -50,6 +50,15 @@ CATEGORY_LABELS = {
     "P": "Pipeline",
     "M": "Misinformation",
 }
+CATEGORY_LABELS_SHORT = {
+    "J": "Jailbreak",
+    "O": "Instr. Override",
+    "E": "Obfuscation",
+    "C": "Context Manip.",
+    "G": "Gradient",
+    "P": "Pipeline",
+    "M": "Misinfo.",
+}
 COLORS = matplotlib.colormaps["tab10"](np.linspace(0, 1, 10))
 
 
@@ -102,7 +111,7 @@ def plot_asr_by_category(all_models: dict, slug: str):
         width = 0.8 / n_models
         x = np.arange(len(CATEGORY_ORDER))
 
-        fig, ax = plt.subplots(figsize=(9, 4.5))
+        fig, ax = plt.subplots(figsize=(max(11, n_models * 1.6), 5.5))
 
         for i, model in enumerate(models):
             offset = (i - n_models / 2 + 0.5) * width
@@ -127,15 +136,22 @@ def plot_asr_by_category(all_models: dict, slug: str):
                         ha="center",
                         va="bottom",
                         fontsize=7,
-                        rotation=90 if h > 50 else 0,
+                        rotation=90,
                     )
 
         ax.set_ylabel("Attack Success Rate (%)")
         ax.set_xlabel("Attack Category")
         ax.set_xticks(x)
         ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
-        ax.set_ylim(0, 105)
-        ax.legend(title="Model", loc="upper left", frameon=True)
+        ax.set_ylim(0, 120)
+        ax.set_yticks(np.arange(0, 101, 20))
+        ax.legend(
+            title="Model",
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.18),
+            ncol=min(n_models, 5),
+            frameon=True,
+        )
         ax.set_title(f"ASR by Category — Prompt: {prompt}")
 
         fig.tight_layout()
@@ -169,12 +185,16 @@ def plot_heatmap(all_models: dict, slug: str):
 
         matrix = np.array(matrix)
 
-        fig, ax = plt.subplots(figsize=(7, max(3, 0.4 * len(models) + 1)))
+        fig, ax = plt.subplots(figsize=(9, max(3.5, 0.5 * len(models) + 1.8)))
         im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0, vmax=100)
 
         ax.set_xticks(np.arange(len(CATEGORY_ORDER)))
         ax.set_yticks(np.arange(len(models)))
-        ax.set_xticklabels([CATEGORY_LABELS[c] for c in CATEGORY_ORDER])
+        ax.set_xticklabels(
+            [CATEGORY_LABELS_SHORT[c] for c in CATEGORY_ORDER],
+            rotation=30,
+            ha="right",
+        )
         ax.set_yticklabels(models)
 
         for i in range(len(models)):
@@ -221,7 +241,7 @@ def plot_overall_ranking(all_models: dict, slug: str):
     leaked = [leaked[i] for i in sorted_idx]
     totals = [totals[i] for i in sorted_idx]
 
-    fig, ax = plt.subplots(figsize=(6, 0.4 * len(models) + 1.5))
+    fig, ax = plt.subplots(figsize=(8, 0.55 * len(models) + 2.0))
     y = np.arange(len(models))
     bars = ax.barh(y, asrs, color=COLORS[0], edgecolor="black", linewidth=0.5)
 
@@ -236,11 +256,20 @@ def plot_overall_ranking(all_models: dict, slug: str):
     ax.set_yticks(y)
     ax.set_yticklabels(models)
     ax.invert_yaxis()
-    ax.set_xlim(0, 105)
+    ax.set_xlim(0, 135)
+    ax.set_xticks(np.arange(0, 101, 20))
     ax.set_xlabel("Overall Attack Success Rate (%)")
 
     for i, (val, lk, tot) in enumerate(zip(asrs, leaked, totals)):
-        ax.text(val + 1.5, i, f"{val:.1f}% ({lk}/{tot})", va="center", fontsize=9)
+        label = f"{val:.1f}% ({lk}/{tot})"
+        if val > 80:
+            ax.text(
+                val - 1.5, i, label,
+                va="center", ha="right", fontsize=9,
+                color="white", fontweight="bold",
+            )
+        else:
+            ax.text(val + 1.5, i, label, va="center", fontsize=9)
 
     ax.set_title("Overall ASR Ranking — All Prompts")
     ax.legend(
@@ -249,7 +278,9 @@ def plot_overall_ranking(all_models: dict, slug: str):
             Rectangle((0, 0), 1, 1, color="#ff7f0e", label="Medium (25-50%)"),
             Rectangle((0, 0), 1, 1, color="#d62728", label="High (>50%)"),
         ],
-        loc="lower right",
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=3,
         frameon=True,
     )
 
@@ -343,19 +374,22 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
             continue
 
         fig, axes = plt.subplots(
-            1, len(models), figsize=(4 * len(models), 5), sharey=True
+            1, len(models), figsize=(3.6 * len(models), 5.2), sharey=True
         )
         if len(models) == 1:
             axes = [axes]
 
+        max_total = 0
+        legend_handles = None
         for ax, model in zip(axes, models):
             cats = all_models[model]["prompts"][prompt].get("categories", {})
             cats_present = [c for c in CATEGORY_ORDER if c in cats]
             leaked = [cats[c]["leaked"] for c in cats_present]
             resisted = [cats[c]["resisted"] for c in cats_present]
+            max_total = max(max_total, max((l + r) for l, r in zip(leaked, resisted)) if cats_present else 0)
 
             y = np.arange(len(cats_present))
-            ax.barh(
+            b1 = ax.barh(
                 y,
                 leaked,
                 color="#d62728",
@@ -363,7 +397,7 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
                 edgecolor="black",
                 linewidth=0.5,
             )
-            ax.barh(
+            b2 = ax.barh(
                 y,
                 resisted,
                 left=leaked,
@@ -372,16 +406,29 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
                 edgecolor="black",
                 linewidth=0.5,
             )
+            legend_handles = [b1, b2]
 
             ax.set_yticks(y)
             ax.set_yticklabels([CATEGORY_LABELS[c] for c in cats_present])
             ax.invert_yaxis()
             ax.set_xlabel("Payload Count")
             ax.set_title(model)
-            ax.legend(loc="lower right")
 
-        fig.suptitle(f"Leak vs Resist — Prompt: {prompt}", y=1.02)
-        fig.tight_layout()
+        for ax in axes:
+            ax.set_xlim(0, max_total * 1.02 if max_total else 1)
+
+        if legend_handles:
+            fig.legend(
+                handles=legend_handles,
+                labels=["Leaked", "Resisted"],
+                loc="lower center",
+                bbox_to_anchor=(0.5, -0.02),
+                ncol=2,
+                frameon=True,
+            )
+
+        fig.suptitle(f"Leak vs Resist — Prompt: {prompt}", y=1.0)
+        fig.tight_layout(rect=(0, 0.05, 1, 0.97))
         save(fig, f"{slug}_leak_resist_stacked_{prompt}")
         return fig
 

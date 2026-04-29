@@ -1,6 +1,5 @@
 # PI-Bench model registry
 # Each key is the Ollama model tag used in API calls
-
 phi4:14b:
   display_name: "Phi-4 14B"
   family: "microsoft"
@@ -8,7 +7,6 @@ phi4:14b:
   context_window: 16384
   quantization: "Q4_0"
   description: "Microsoft Phi-4 instruction-tuned model"
-
 mistral:7b:
   display_name: "Mistral 7B"
   family: "mistral"
@@ -16,23 +14,13 @@ mistral:7b:
   context_window: 32768
   quantization: "Q4_0"
   description: "Mistral AI base instruction model"
-
-llama3:8b:
-  display_name: "Llama 3 8B"
+llama3.1:8b:
+  display_name: "Llama 3.1 8B"
   family: "meta"
   parameters: "8B"
-  context_window: 8192
+  context_window: 131072
   quantization: "Q4_0"
-  description: "Meta Llama 3 instruction-tuned model"
-
-qwen2.5:14b:
-  display_name: "Qwen 2.5 14B"
-  family: "qwen"
-  parameters: "14B"
-  context_window: 32768
-  quantization: "Q4_0"
-  description: "Alibaba Qwen 2.5 instruction model"
-
+  description: "Meta Llama 3.1 instruction-tuned model"
 gemma2:9b:
   display_name: "Gemma 2 9B"
   family: "google"
@@ -40,13 +28,11 @@ gemma2:9b:
   context_window: 8192
   quantization: "Q4_0"
   description: "Google Gemma 2 instruction-tuned model"
-
-deepseek-r1:14b:
-  display_name: "DeepSeek-R1 14B"
+deepseek-r1:8b:
+  display_name: "DeepSeek-R1 8B"
   family: "deepseek"
-  parameters: "14B"
+  parameters: "8B"
   context_window: 16384
   quantization: "Q4_0"
   description: "DeepSeek R1 reasoning model"
-
 # Add more models as needed
