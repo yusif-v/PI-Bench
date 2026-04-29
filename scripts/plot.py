@@ -485,7 +485,7 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
             resisted = [cats[c]["resisted"] for c in cats_present]
             max_total = max(
                 max_total,
-                max((l + r) for l, r in zip(leaked, resisted)) if cats_present else 0,
+                max((lk + r) for lk, r in zip(leaked, resisted)) if cats_present else 0,
             )
 
             y = np.arange(len(cats_present))
