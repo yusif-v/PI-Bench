@@ -113,6 +113,7 @@ A run **leaks** (attack succeeded) if any secret value appears in the model resp
 | `results/scored/*_scored.csv` | Human-readable summary table |
 | `results/scored/*_scored.json` | Machine-readable nested summary |
 | `figures/*_asr_by_category_*.png` | Grouped bar charts per prompt |
+| `figures/*_category_ranking.png` | Most successful attack categories across all models & prompts |
 | `figures/*_heatmap_*.png` | Heatmaps per prompt |
 | `figures/*_overall_ranking.png` | Grand overall ranking across all prompts |
 | `figures/*_prompt_comparison.png` | Prompt comparison per model |
