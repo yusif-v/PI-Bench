@@ -264,9 +264,14 @@ def plot_overall_ranking(all_models: dict, slug: str):
         label = f"{val:.1f}% ({lk}/{tot})"
         if val > 80:
             ax.text(
-                val - 1.5, i, label,
-                va="center", ha="right", fontsize=9,
-                color="white", fontweight="bold",
+                val - 1.5,
+                i,
+                label,
+                va="center",
+                ha="right",
+                fontsize=9,
+                color="white",
+                fontweight="bold",
             )
         else:
             ax.text(val + 1.5, i, label, va="center", fontsize=9)
@@ -286,6 +291,98 @@ def plot_overall_ranking(all_models: dict, slug: str):
 
     fig.tight_layout()
     save(fig, f"{slug}_overall_ranking")
+    return fig
+
+
+def plot_category_ranking(all_models: dict, slug: str):
+    """
+    Horizontal bar chart: overall ASR per attack category
+    aggregated across ALL models and prompts.
+    Shows which injection technique is most successful overall.
+    """
+    cat_totals: dict[str, int] = {c: 0 for c in CATEGORY_ORDER}
+    cat_leaked: dict[str, int] = {c: 0 for c in CATEGORY_ORDER}
+
+    for model_data in all_models.values():
+        for prompt_data in model_data.get("prompts", {}).values():
+            for cat, stats in prompt_data.get("categories", {}).items():
+                if cat in cat_totals:
+                    cat_totals[cat] += stats.get("total", 0)
+                    cat_leaked[cat] += stats.get("leaked", 0)
+
+    # Build sorted lists
+    cats = []
+    asrs = []
+    leaked_list = []
+    totals_list = []
+
+    for cat in CATEGORY_ORDER:
+        if cat_totals[cat] > 0:
+            cats.append(cat)
+            lk = cat_leaked[cat]
+            tot = cat_totals[cat]
+            leaked_list.append(lk)
+            totals_list.append(tot)
+            asrs.append((lk / tot * 100) if tot else 0.0)
+
+    # Sort by ASR descending
+    sorted_idx = np.argsort(asrs)[::-1]
+    cats = [cats[i] for i in sorted_idx]
+    asrs = [asrs[i] for i in sorted_idx]
+    leaked_list = [leaked_list[i] for i in sorted_idx]
+    totals_list = [totals_list[i] for i in sorted_idx]
+
+    fig, ax = plt.subplots(figsize=(8, 0.6 * len(cats) + 2.0))
+    y = np.arange(len(cats))
+
+    bars = ax.barh(y, asrs, color=COLORS[2], edgecolor="black", linewidth=0.5)
+
+    for bar, val in zip(bars, asrs):
+        if val > 50:
+            bar.set_color("#d62728")
+        elif val > 25:
+            bar.set_color("#ff7f0e")
+        else:
+            bar.set_color("#2ca02c")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{c} – {CATEGORY_LABELS_SHORT[c]}" for c in cats])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 135)
+    ax.set_xticks(np.arange(0, 101, 20))
+    ax.set_xlabel("Overall Attack Success Rate (%)")
+
+    for i, (val, lk, tot) in enumerate(zip(asrs, leaked_list, totals_list)):
+        label = f"{val:.1f}% ({lk}/{tot})"
+        if val > 80:
+            ax.text(
+                val - 1.5,
+                i,
+                label,
+                va="center",
+                ha="right",
+                fontsize=9,
+                color="white",
+                fontweight="bold",
+            )
+        else:
+            ax.text(val + 1.5, i, label, va="center", fontsize=9)
+
+    ax.set_title("Most Successful Attack Categories — All Models & Prompts")
+    ax.legend(
+        handles=[
+            Rectangle((0, 0), 1, 1, color="#2ca02c", label="Low (<25%)"),
+            Rectangle((0, 0), 1, 1, color="#ff7f0e", label="Medium (25-50%)"),
+            Rectangle((0, 0), 1, 1, color="#d62728", label="High (>50%)"),
+        ],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=3,
+        frameon=True,
+    )
+
+    fig.tight_layout()
+    save(fig, f"{slug}_category_ranking")
     return fig
 
 
@@ -386,7 +483,10 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
             cats_present = [c for c in CATEGORY_ORDER if c in cats]
             leaked = [cats[c]["leaked"] for c in cats_present]
             resisted = [cats[c]["resisted"] for c in cats_present]
-            max_total = max(max_total, max((l + r) for l, r in zip(leaked, resisted)) if cats_present else 0)
+            max_total = max(
+                max_total,
+                max((l + r) for l, r in zip(leaked, resisted)) if cats_present else 0,
+            )
 
             y = np.arange(len(cats_present))
             b1 = ax.barh(
@@ -445,6 +545,7 @@ def process_file(path: Path):
     plot_asr_by_category(models, slug)
     plot_heatmap(models, slug)
     plot_overall_ranking(models, slug)
+    plot_category_ranking(models, slug)
     plot_prompt_comparison(models, slug)
     plot_leak_resist_stacked(models, slug)
 
