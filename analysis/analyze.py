@@ -11,21 +11,17 @@ Usage:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import argparse
 import csv
 import json
 from collections import defaultdict
-from pathlib import Path
 
-CATEGORY_NAMES = {
-    "J": "Jailbreak / Roleplay",
-    "O": "Instruction Override",
-    "E": "Obfuscation / Encoding",
-    "C": "Context Manipulation",
-    "G": "Gradient-Based / Automated",
-    "P": "Indirect: Data Pipeline",
-    "M": "Indirect: Misinformation",
-}
+from pi_bench.constants import CATEGORY_NAMES
 
 
 def load_results(path: str) -> list[dict]:
@@ -47,8 +43,10 @@ def latency_table(rows: list[dict], group_key: str) -> dict[str, list[float]]:
     for r in rows:
         val = r.get(group_key, "unknown") or "unknown"
         ms = r.get("total_ms", "").strip()
-        if ms.isdigit():
+        try:
             buckets[val].append(float(ms))
+        except (ValueError, TypeError):
+            pass
     return buckets
 
 

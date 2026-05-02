@@ -7,10 +7,13 @@ Usage:
     python scripts/plot.py --all
 """
 
-import argparse
-import json
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import argparse
+import json
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -18,7 +21,8 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-ROOT = Path(__file__).parent.parent
+from pi_bench.constants import CATEGORY_ORDER, ROOT
+
 FIGURES_DIR = ROOT / "figures"
 
 plt.rcParams.update(
@@ -40,7 +44,7 @@ plt.rcParams.update(
     }
 )
 
-CATEGORY_ORDER = ["J", "O", "E", "C", "G", "P", "M"]
+# CATEGORY_ORDER imported from pi_bench.constants
 CATEGORY_LABELS = {
     "J": "Jailbreak",
     "O": "Instruction\nOverride",
@@ -530,7 +534,6 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
         fig.suptitle(f"Leak vs Resist — Prompt: {prompt}", y=1.0)
         fig.tight_layout(rect=(0, 0.05, 1, 0.97))
         save(fig, f"{slug}_leak_resist_stacked_{prompt}")
-        return fig
 
 
 def process_file(path: Path):

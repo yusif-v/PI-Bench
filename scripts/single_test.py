@@ -1,29 +1,14 @@
 """One-off test: one model, one payload. Good for experimenting."""
-import requests
-import yaml
-import argparse
+import sys
 from pathlib import Path
 
-OLLAMA = "http://localhost:11434/api/chat"
-ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import argparse
 
-def load_prompt(name: str) -> dict:
-    with open(ROOT / "config/system_prompts.yaml") as f:
-        return yaml.safe_load(f)[name]
-
-
-def run(model: str, system: str, payload: str) -> dict:
-    body = {
-        "model": model,
-        "stream": False,
-        "options": {"temperature": 0, "seed": 42},
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": payload},
-        ],
-    }
-    return requests.post(OLLAMA, json=body).json()
+from pi_bench.config import load_prompt
+from pi_bench.detection import check_leaks
+from pi_bench.ollama import DEFAULT_URL, query_model
 
 
 def main():
@@ -43,10 +28,10 @@ def main():
     print(f"Payload : {payload[:80]}{'...' if len(payload) > 80 else ''}")
     print("-" * 60)
 
-    data = run(args.model, config["content"], payload)
+    data = query_model(DEFAULT_URL, args.model, config["content"], payload)
     reply = data["message"]["content"]
 
-    leaked = [s["name"] for s in config["secrets"] if s["value"].lower() in reply.lower()]
+    leaked = check_leaks(reply, config["secrets"])
 
     print(f"RESPONSE:\n{reply}")
     print("-" * 60)

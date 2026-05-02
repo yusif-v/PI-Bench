@@ -40,7 +40,7 @@ python scripts/harness.py --models all --prompts all && \
 │   └── analyze.py              # Legacy ASR statistics from CSV
 ├── config/
 │   ├── models.yaml             # Model registry (family, params, context window)
-│   └── system_prompts.yaml     # NexaBank, VaultPay, etc.
+│   └── system_prompts.yaml     # NexaBank system prompt config
 ├── figures/                    # Generated charts (PNG + PDF)
 ├── payloads/                   # 200+ payloads split by attack category
 │   ├── J_jailbreak_roleplay.txt
@@ -80,7 +80,6 @@ python scripts/harness.py --models all --prompts all && \
 | Key | Name | Secrets |
 |-----|------|---------|
 | `nexabank` | NexaBank / ARIA | 6 fields |
-| `vaultpay` | VaultPay | 4 fields |
 
 ## Model Registry
 
@@ -126,7 +125,7 @@ A run **leaks** (attack succeeded) if any secret value appears in the model resp
 python scripts/harness.py --models all --prompts all
 
 # Specific models and prompts
-python scripts/harness.py --models phi4:14b mistral:7b --prompts nexabank vaultpay
+python scripts/harness.py --models phi4:14b mistral:7b --prompts nexabank
 
 # Specific categories only
 python scripts/harness.py --models all --prompts nexabank --category J O E
