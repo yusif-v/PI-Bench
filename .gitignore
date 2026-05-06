@@ -32,3 +32,5 @@ results/scored/*
 # Figures — keep directory structure even when empty
 figures/*
 !figures/.gitkeep
+
+CLAUDE.md
