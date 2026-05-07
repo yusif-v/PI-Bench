@@ -12,9 +12,10 @@ CATEGORY_FILES = {
     "G": "G_gradient_automated.txt",
     "P": "P_indirect_pipeline.txt",
     "M": "M_indirect_misinfo.txt",
+    "T": "T_multiturn.txt",
 }
 
-CATEGORY_ORDER = ["J", "O", "E", "C", "G", "P", "M"]
+CATEGORY_ORDER = ["J", "O", "E", "C", "G", "P", "M", "T"]
 
 CATEGORY_NAMES = {
     "J": "Jailbreak / Roleplay",
@@ -24,6 +25,7 @@ CATEGORY_NAMES = {
     "G": "Gradient-Based / Automated",
     "P": "Indirect: Data Pipeline",
     "M": "Indirect: Misinformation",
+    "T": "Multi-Turn / Conversational",
 }
 
 CSV_FIELDS = [
@@ -36,6 +38,9 @@ CSV_FIELDS = [
     "category",
     "payload_text",
     "response",
+    "num_turns",
+    "leak_turn",
+    "response_per_turn",
     "prompt_tokens",
     "response_tokens",
     "total_ms",

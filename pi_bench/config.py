@@ -74,12 +74,17 @@ def resolve_prompts(specs: list[str]) -> list[str]:
     return specs
 
 
-def load_payloads(categories: list[str]) -> list[tuple[str, str, str]]:
+def load_payloads(categories: list[str]) -> list[tuple[str, list[str], str]]:
     """Load payloads for the given categories.
 
-    Returns list of (payload_id, payload_text, category) tuples.
+    Returns list of (payload_id, turns, category) tuples.
+
+    Single-turn payloads use the line format `PID | text` and yield a
+    1-element turns list. Multi-turn payloads use `PID >> turn text`,
+    repeated once per turn with the same PID; consecutive lines with the
+    same PID are grouped in order.
     """
-    payloads = []
+    payloads: list[tuple[str, list[str], str]] = []
     for cat in categories:
         path = ROOT / "payloads" / CATEGORY_FILES[cat]
         if not path.exists():
@@ -87,17 +92,22 @@ def load_payloads(categories: list[str]) -> list[tuple[str, str, str]]:
                 f"Payload file not found for category '{cat}': {path}"
             )
         lines = path.read_text(encoding="utf-8").splitlines()
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line:
+        order: list[str] = []
+        turns_by_id: dict[str, list[str]] = {}
+        for line_num, raw in enumerate(lines, 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
                 continue
-            if "|" not in line:
+            if ">>" in line:
+                pid, text = line.split(">>", 1)
+            elif "|" in line:
+                pid, text = line.split("|", 1)
+            else:
                 print(
                     f"  [WARN] Skipping malformed line {line_num} in {path.name}",
                     file=sys.stderr,
                 )
                 continue
-            pid, text = line.split("|", 1)
             pid = pid.strip()
             text = text.strip()
             if not pid:
@@ -106,5 +116,10 @@ def load_payloads(categories: list[str]) -> list[tuple[str, str, str]]:
                     file=sys.stderr,
                 )
                 continue
-            payloads.append((pid, text, cat))
+            if pid not in turns_by_id:
+                turns_by_id[pid] = []
+                order.append(pid)
+            turns_by_id[pid].append(text)
+        for pid in order:
+            payloads.append((pid, turns_by_id[pid], cat))
     return payloads

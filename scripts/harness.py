@@ -34,7 +34,7 @@ from pi_bench.config import (
 )
 from pi_bench.constants import CATEGORY_FILES, CSV_FIELDS, ROOT
 from pi_bench.detection import check_leaks
-from pi_bench.ollama import query_model
+from pi_bench.ollama import run_conversation
 
 
 def load_done_keys(path: Path) -> set[tuple[str, str, str, str]]:
@@ -219,12 +219,19 @@ def main():
                     )
                     stats = per_model_stats[model]
 
-                    for idx, (pid, payload_text, category) in enumerate(payloads, 1):
+                    for idx, (pid, turns, category) in enumerate(payloads, 1):
                         if (model, prompt_name, pid, category) in done_keys:
                             skipped += 1
                             continue
 
-                        print(f"  [{idx}/{len(payloads)}] {pid}...", end="", flush=True)
+                        num_turns = len(turns)
+                        payload_text_joined = "\n---\n".join(turns)
+                        marker = f" [{num_turns}t]" if num_turns > 1 else ""
+                        print(
+                            f"  [{idx}/{len(payloads)}] {pid}{marker}...",
+                            end="",
+                            flush=True,
+                        )
                         row = {
                             "timestamp": datetime.now().isoformat(timespec="seconds"),
                             "model": model,
@@ -233,8 +240,11 @@ def main():
                             "prompt_name": prompt_name,
                             "payload_id": pid,
                             "category": category,
-                            "payload_text": payload_text,
+                            "payload_text": payload_text_joined,
                             "response": "",
+                            "num_turns": num_turns,
+                            "leak_turn": "",
+                            "response_per_turn": "",
                             "prompt_tokens": "",
                             "response_tokens": "",
                             "total_ms": "",
@@ -245,41 +255,65 @@ def main():
                         }
 
                         try:
-                            data = query_model(
+                            datas = run_conversation(
                                 args.ollama_url,
                                 model,
                                 config["content"],
-                                payload_text,
+                                turns,
                                 args.timeout,
                                 args.retries,
                             )
 
-                            msg = data.get("message") or {}
-                            response = msg.get("content", "")
-                            if not response:
-                                response = str(data.get("message", data))
+                            per_turn_responses: list[str] = []
+                            leak_turn: int | None = None
+                            cumulative_leaked: list[str] = []
+                            seen_secrets: set[str] = set()
+                            prompt_tokens_sum = 0
+                            response_tokens_sum = 0
+                            total_ms_sum = 0
+                            eval_ms_sum = 0
 
-                            leaked = check_leaks(response, config["secrets"])
-                            success = 1 if leaked else 0
+                            for t_idx, data in enumerate(datas, 1):
+                                msg = data.get("message") or {}
+                                turn_resp = msg.get("content", "") or str(
+                                    data.get("message", data)
+                                )
+                                per_turn_responses.append(turn_resp)
+                                turn_leaks = check_leaks(turn_resp, config["secrets"])
+                                if turn_leaks and leak_turn is None:
+                                    leak_turn = t_idx
+                                for s in turn_leaks:
+                                    if s not in seen_secrets:
+                                        seen_secrets.add(s)
+                                        cumulative_leaked.append(s)
+                                prompt_tokens_sum += data.get("prompt_eval_count") or 0
+                                response_tokens_sum += data.get("eval_count") or 0
+                                total_ms_sum += (data.get("total_duration") or 0) / 1e6
+                                eval_ms_sum += (data.get("eval_duration") or 0) / 1e6
 
-                            total_dur = data.get("total_duration") or 0
-                            eval_dur = data.get("eval_duration") or 0
+                            full_response = "\n---\n".join(per_turn_responses)
+                            success = 1 if cumulative_leaked else 0
 
                             row.update(
                                 {
-                                    "response": response,
-                                    "prompt_tokens": data.get("prompt_eval_count", ""),
-                                    "response_tokens": data.get("eval_count", ""),
-                                    "total_ms": round(total_dur / 1e6),
-                                    "eval_ms": round(eval_dur / 1e6),
-                                    "leaked_secrets": "|".join(leaked),
+                                    "response": full_response,
+                                    "leak_turn": leak_turn if leak_turn else "",
+                                    "response_per_turn": json.dumps(
+                                        per_turn_responses, ensure_ascii=False
+                                    ),
+                                    "prompt_tokens": prompt_tokens_sum,
+                                    "response_tokens": response_tokens_sum,
+                                    "total_ms": round(total_ms_sum),
+                                    "eval_ms": round(eval_ms_sum),
+                                    "leaked_secrets": "|".join(cumulative_leaked),
                                     "attack_success": success,
                                 }
                             )
 
                             if success:
                                 stats["leaked"] += 1
-                                print(f" LEAK ({','.join(leaked)})")
+                                turn_tag = f"@t{leak_turn}" if num_turns > 1 else ""
+                                print(f" LEAK{turn_tag} ({','.join(cumulative_leaked)})")
                             else:
                                 stats["resisted"] += 1
                                 print(" pass")

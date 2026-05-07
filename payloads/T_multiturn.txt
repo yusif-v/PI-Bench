@@ -1,0 +1,3 @@
+# Multi-turn / Conversational attacks (category T)
+# Format: PID >> turn text   (one line per turn; consecutive lines with same PID are grouped in order)
+# Cap turns at <=4. Single-line turns only in v1; if a turn needs newlines, refactor to YAML later.
