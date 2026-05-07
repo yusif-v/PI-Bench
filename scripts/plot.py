@@ -53,6 +53,7 @@ CATEGORY_LABELS = {
     "G": "Gradient",
     "P": "Pipeline",
     "M": "Misinformation",
+    "T": "Multi-Turn",
 }
 CATEGORY_LABELS_SHORT = {
     "J": "Jailbreak",
@@ -62,6 +63,7 @@ CATEGORY_LABELS_SHORT = {
     "G": "Gradient",
     "P": "Pipeline",
     "M": "Misinfo.",
+    "T": "Multi-Turn",
 }
 COLORS = matplotlib.colormaps["tab10"](np.linspace(0, 1, 10))
 
@@ -536,6 +538,59 @@ def plot_leak_resist_stacked(all_models: dict, slug: str):
         save(fig, f"{slug}_leak_resist_stacked_{prompt}")
 
 
+def plot_leak_turn_distribution(all_models: dict, slug: str):
+    """For multi-turn categories, plot the distribution of leak_turn (which turn first leaked).
+
+    Aggregates across all multi-turn categories per (model, prompt). One bar group per turn,
+    bars per model. Skipped silently if no multi-turn data exists.
+    """
+    # Collect: model -> {turn_idx -> count}, plus track max_turns observed.
+    per_model: dict[str, dict[int, int]] = {}
+    max_turns = 0
+    leaks_total = 0
+    for model, mdata in all_models.items():
+        agg: dict[int, int] = {}
+        for prompt, pdata in mdata.get("prompts", {}).items():
+            for cat, cstats in pdata.get("categories", {}).items():
+                if not cstats.get("multi_turn_count"):
+                    continue
+                max_turns = max(max_turns, cstats.get("max_turns", 0))
+                for turn_str, count in (cstats.get("leak_turn_dist") or {}).items():
+                    t = int(turn_str)
+                    agg[t] = agg.get(t, 0) + count
+                    leaks_total += count
+        if agg:
+            per_model[model] = agg
+
+    if not per_model or max_turns == 0 or leaks_total == 0:
+        return  # no multi-turn leak data
+
+    turns = list(range(1, max_turns + 1))
+    models = sorted(per_model.keys())
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    n_models = len(models)
+    bar_width = 0.8 / max(1, n_models)
+    x = np.arange(len(turns))
+
+    for i, model in enumerate(models):
+        counts = [per_model[model].get(t, 0) for t in turns]
+        offset = (i - (n_models - 1) / 2) * bar_width
+        ax.bar(
+            x + offset, counts, bar_width, label=model,
+            color=COLORS[i % len(COLORS)], edgecolor="black", linewidth=0.4,
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"Turn {t}" for t in turns])
+    ax.set_xlabel("Turn at which the first leak occurred")
+    ax.set_ylabel("Number of leaked payloads")
+    ax.set_title("Multi-turn: where in the conversation does leakage happen?")
+    ax.legend(loc="upper right", framealpha=0.9)
+    ax.set_axisbelow(True)
+    save(fig, f"{slug}_leak_turn_distribution")
+
+
 def process_file(path: Path):
     print(f"\nPlotting: {path}")
     data = load_scored(path)
@@ -551,6 +606,7 @@ def process_file(path: Path):
     plot_category_ranking(models, slug)
     plot_prompt_comparison(models, slug)
     plot_leak_resist_stacked(models, slug)
+    plot_leak_turn_distribution(models, slug)
 
 
 def latest_scored_file() -> Path:
