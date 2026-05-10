@@ -186,3 +186,7 @@ python scripts/plot.py --all
 - Resume mode skips `(model, prompt_name, payload_id, category)` tuples already scored
 - Manifest files are timestamped on resume to preserve run history
 - Figures are exported as both PNG (web/slides) and PDF (vector/print)
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Telman Yusifov.
